@@ -1,0 +1,115 @@
+import bytes
+import random
+import process
+import mc_protocol.varint
+import mc_protocol.types
+import mc_protocol.connection
+import rsa
+import sha1
+
+// Minecraft login sequence for 1.21.1 (protocol 767).
+
+let PROTOCOL_VERSION = 767
+
+// --- Packet builders ---
+
+fn build_handshake(host: String, port: Int) -> Bytes = {
+  let ver = varint.encode(PROTOCOL_VERSION)
+  let addr = types.encode_string(host)
+  let p = types.encode_unsigned_short(port)
+  let state = varint.encode(2)
+  bytes.concat(bytes.concat(ver, addr), bytes.concat(p, state))
+}
+
+fn build_login_start(username: String, uuid: Bytes) -> Bytes =
+  bytes.concat(types.encode_string(username), uuid)
+
+fn build_encryption_response(enc_secret: Bytes, enc_token: Bytes) -> Bytes = {
+  let s = bytes.concat(varint.encode(bytes.len(enc_secret)), enc_secret)
+  let t = bytes.concat(varint.encode(bytes.len(enc_token)), enc_token)
+  bytes.concat(s, t)
+}
+
+// --- Parsers ---
+
+fn parse_encryption_request(data: Bytes) -> { server_id: String, public_key: Bytes, verify_token: Bytes } = {
+  var off = 0
+  let sid_r = varint.decode(data, off)
+  off = off + sid_r.size
+  let server_id = bytes.slice(data, off, off + sid_r.value)
+  off = off + sid_r.value
+  let pk_r = varint.decode(data, off)
+  off = off + pk_r.size
+  let public_key = bytes.slice(data, off, off + pk_r.value)
+  off = off + pk_r.value
+  let vt_r = varint.decode(data, off)
+  off = off + vt_r.size
+  let verify_token = bytes.slice(data, off, off + vt_r.value)
+  { server_id: bytes.to_string(server_id) ?? "", public_key: public_key, verify_token: verify_token }
+}
+
+// --- Login flow ---
+
+effect fn send_handshake(conn: connection.Connection, host: String, port: Int) -> Result[connection.Connection, String] = {
+  let c = connection.send(conn, 0x00, build_handshake(host, port))!
+  ok(connection.set_state(c, connection.Login))
+}
+
+effect fn send_login_start(conn: connection.Connection, username: String, uuid: Bytes) -> Result[connection.Connection, String] =
+  connection.send(conn, 0x00, build_login_start(username, uuid))
+
+effect fn send_login_acknowledged(conn: connection.Connection) -> Result[connection.Connection, String] = {
+  let c = connection.send(conn, 0x03, bytes.new(0))!
+  ok(connection.set_state(c, connection.Configuration))
+}
+
+// --- Encryption ---
+
+effect fn generate_shared_secret() -> Bytes = {
+  var secret = bytes.new(16)
+  for i in 0..16 { secret = bytes.set(secret, i, random.int(0, 255)) }
+  secret
+}
+
+effect fn handle_encryption(conn: connection.Connection, enc_req: { server_id: String, public_key: Bytes, verify_token: Bytes }, mc_token: String, uuid: String) -> Result[connection.Connection, String] = {
+  let shared_secret = generate_shared_secret()!
+  let pub_key = rsa.parse_der_public_key(enc_req.public_key)
+  let enc_secret = rsa.encrypt(pub_key, shared_secret)!
+  let enc_token = rsa.encrypt(pub_key, enc_req.verify_token)!
+
+  join_session(mc_token, uuid, enc_req.server_id, shared_secret, enc_req.public_key)!
+
+  let c = connection.send(conn, 0x01, build_encryption_response(enc_secret, enc_token))!
+  ok(connection.enable_encryption(c, shared_secret))
+}
+
+// --- Mojang Session Join ---
+
+effect fn join_session(mc_token: String, uuid: String, server_id: String, shared_secret: Bytes, public_key: Bytes) -> Result[Unit, String] = {
+  let hash = mc_server_hash(server_id, shared_secret, public_key)
+  let body = "{\"accessToken\":\"${mc_token}\",\"selectedProfile\":\"${uuid}\",\"serverId\":\"${hash}\"}"
+  process.exec("curl", ["-s", "-X", "POST", "-H", "Content-Type: application/json", "-d", body, "https://sessionserver.mojang.com/session/minecraft/join"])!
+  ok(())
+}
+
+fn mc_server_hash(server_id: String, shared_secret: Bytes, public_key: Bytes) -> String = {
+  let sid_bytes = bytes.from_string(server_id)
+  let to_hash = bytes.concat(bytes.concat(sid_bytes, shared_secret), public_key)
+  let digest = sha1.hash(to_hash)
+  mc_hex_digest(sha1.hex(digest))
+}
+
+fn mc_hex_digest(hex: String) -> String = {
+  let first = string.slice(hex, 0, 1)
+  let is_negative = first == "8" or first == "9" or first == "a" or first == "b" or first == "c" or first == "d" or first == "e" or first == "f"
+  if is_negative then "-${hex}"
+  else {
+    var start = 0
+    let chars = string.chars(hex)
+    let len = list.length(chars)
+    while start < len - 1 and (list.get(chars, start) ?? "0") == "0" {
+      start = start + 1
+    }
+    string.slice(hex, start, len)
+  }
+}

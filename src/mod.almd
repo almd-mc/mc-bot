@@ -1,0 +1,131 @@
+import bytes
+import process
+import mc_protocol.varint
+import mc_protocol.types
+import mc_protocol.packet
+import mc_protocol.connection
+import mc_auth
+import neoforge.config_phase
+import self.handshake
+
+// mc-bot: Almide-native Minecraft bot for NeoForge 1.21.1.
+//
+// Usage:
+//   almide run -- [host] [port]
+//
+// Requires:
+//   - Server patched with almd-mc/neoforge patcher
+//   - Microsoft account with Minecraft ownership
+
+type BotConfig = {
+  host: String,
+  port: Int,
+  config_channels: List[{ id: String, version: String }],
+}
+
+let DEFAULT_CONFIG: BotConfig = {
+  host: "localhost",
+  port: 25565,
+  config_channels: [
+    { id: "aoa3:player_halos_sync", version: "aoa3" },
+    { id: "aoa3:skill_reqs_sync", version: "aoa3" },
+  ],
+}
+
+// --- Login ---
+
+effect fn login_phase(conn: connection.Connection, profile: mc_auth.Profile) -> Result[connection.Connection, String] = {
+  let uuid_bytes = types.encode_uuid(profile.uuid)
+  var c = handshake.send_login_start(conn, profile.username, uuid_bytes)!
+  println("[Login] ${profile.username}")
+
+  var done = false
+  while not done {
+    let r = connection.recv(c)!
+    c = r.conn
+    match r.packet.id {
+      0x01 => {
+        let enc_req = handshake.parse_encryption_request(r.packet.data)
+        println("[Login] Encryption...")
+        c = handshake.handle_encryption(c, enc_req, profile.access_token, profile.uuid)!
+        println("[Login] Encrypted")
+      },
+      0x02 => {
+        println("[Login] Success")
+        c = handshake.send_login_acknowledged(c)!
+        done = true
+      },
+      0x03 => {
+        let threshold = varint.decode(r.packet.data, 0).value
+        println("[Login] Compression: ${int.to_string(threshold)}")
+        c = connection.enable_compression(c, threshold)
+      },
+      _ => (),
+    }
+  }
+  ok(c)
+}
+
+// --- Play ---
+
+let PLAY_SB_KEEP_ALIVE = 0x18
+let PLAY_SB_CONFIRM_TELEPORT = 0x00
+
+effect fn play_loop(conn: connection.Connection) -> Result[Unit, String] = {
+  var c = conn
+  println("[Play] Bot is in the game!")
+  var running = true
+  while running {
+    let r = connection.recv(c)!
+    c = r.conn
+    match r.packet.id {
+      0x26 => {
+        // Keep Alive
+        c = connection.send(c, PLAY_SB_KEEP_ALIVE, r.packet.data)!
+      },
+      0x1D => {
+        // Disconnect
+        let msg = bytes.to_string(r.packet.data) ?? ""
+        println("[Play] Disconnected: ${string.slice(msg, 0, 100)}")
+        running = false
+      },
+      0x2B => {
+        // Login (play)
+        println("[Play] Game data received")
+      },
+      0x40 => {
+        // Synchronize Player Position
+        let tp_r = varint.decode(r.packet.data, 57)
+        let tp_id = varint.encode(tp_r.value)
+        c = connection.send(c, PLAY_SB_CONFIRM_TELEPORT, tp_id)!
+        println("[Play] Teleport confirmed")
+      },
+      _ => (),
+    }
+  }
+  ok(())
+}
+
+// --- Entry ---
+
+effect fn start(config: BotConfig) -> Result[Unit, String] = {
+  let profile = mc_auth.authenticate()!
+
+  println("[Bot] Connecting to ${config.host}:${int.to_string(config.port)}")
+  var conn = connection.connect(config.host, config.port)!
+
+  conn = handshake.send_handshake(conn, config.host, config.port)!
+  conn = login_phase(conn, profile)!
+  conn = config_phase.run(conn, config.config_channels)!
+  play_loop(conn)!
+
+  connection.close(conn)
+  ok(())
+}
+
+effect fn main() -> Unit = {
+  let args = process.args()
+  let host = list.get(args, 1) ?? "localhost"
+  let port = int.parse(list.get(args, 2) ?? "25565") ?? 25565
+  start({ ...DEFAULT_CONFIG, host: host, port: port })!
+}

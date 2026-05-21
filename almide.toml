@@ -1,0 +1,10 @@
+[package]
+name = "mc_bot"
+version = "0.1.0"
+
+[dependencies]
+sha1 = { git = "https://github.com/almide/sha1" }
+rsa = { git = "https://github.com/almide/rsa" }
+mc_protocol = { git = "https://github.com/almd-mc/mc-protocol" }
+mc_auth = { git = "https://github.com/almd-mc/mc-auth" }
+neoforge = { git = "https://github.com/almd-mc/neoforge" }
