@@ -1,5 +1,4 @@
 import bytes
-import process
 import mc_protocol.varint
 import mc_protocol.types
 import mc_protocol.packet
@@ -123,9 +122,3 @@ effect fn start(config: BotConfig) -> Result[Unit, String] = {
   ok(())
 }
 
-effect fn main() -> Unit = {
-  let args = process.args()
-  let host = list.get(args, 1) ?? "localhost"
-  let port = int.parse(list.get(args, 2) ?? "25565") ?? 25565
-  start({ ...DEFAULT_CONFIG, host: host, port: port })!
-}
