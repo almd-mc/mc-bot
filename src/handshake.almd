@@ -88,7 +88,9 @@ effect fn handle_encryption(conn: connection.Connection, enc_req: { server_id: S
 effect fn join_session(mc_token: String, uuid: String, server_id: String, shared_secret: Bytes, public_key: Bytes) -> Result[Unit, String] = {
   let hash = mc_server_hash(server_id, shared_secret, public_key)
   let body = "{\"accessToken\":\"${mc_token}\",\"selectedProfile\":\"${uuid}\",\"serverId\":\"${hash}\"}"
-  process.exec("curl", ["-s", "-X", "POST", "-H", "Content-Type: application/json", "-d", body, "https://sessionserver.mojang.com/session/minecraft/join"])!
+  let resp = process.exec("curl", ["-s", "-X", "POST", "-H", "Content-Type: application/json", "-d", body, "https://sessionserver.mojang.com/session/minecraft/join"])!
+  println("[Session] body=${body}")
+  println("[Session] resp=${resp}")
   ok(())
 }
 
