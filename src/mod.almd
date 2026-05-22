@@ -79,7 +79,8 @@ effect fn play_loop(conn: connection.Connection) -> Result[Unit, String] = {
     c = r.conn
     match r.packet.id {
       0x26 => {
-        // Keep Alive
+        // Keep Alive - echo Long back
+        println("[Play] Keep alive")
         c = connection.send(c, PLAY_SB_KEEP_ALIVE, r.packet.data)!
       },
       0x1D => {
@@ -102,6 +103,7 @@ effect fn play_loop(conn: connection.Connection) -> Result[Unit, String] = {
       _ => (),
     }
   }
+  println("[Play] Loop ended")
   ok(())
 }
 
