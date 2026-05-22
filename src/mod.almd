@@ -94,11 +94,11 @@ effect fn play_loop(conn: connection.Connection) -> Result[Unit, String] = {
         println("[Play] Game data received")
       },
       0x40 => {
-        // Synchronize Player Position
-        let tp_r = varint.decode(r.packet.data, 57)
+        // Synchronize Player Position: x(8) + y(8) + z(8) + yaw(4) + pitch(4) + flags(1) + teleportId(VarInt)
+        let tp_r = varint.decode(r.packet.data, 33)
         let tp_id = varint.encode(tp_r.value)
         c = connection.send(c, PLAY_SB_CONFIRM_TELEPORT, tp_id)!
-        println("[Play] Teleport confirmed")
+        println("[Play] Teleport ${int.to_string(tp_r.value)}")
       },
       _ => (),
     }
