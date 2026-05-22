@@ -102,16 +102,56 @@ fn mc_server_hash(server_id: String, shared_secret: Bytes, public_key: Bytes) ->
 }
 
 fn mc_hex_digest(hex: String) -> String = {
+  // Minecraft uses Java's BigInteger(1, hash).toString(16) semantics.
+  // If the high bit is set (first nibble 8-f), the hash is negative:
+  // compute two's complement (invert + add 1), prepend "-".
   let first = string.slice(hex, 0, 1)
   let is_negative = first == "8" or first == "9" or first == "a" or first == "b" or first == "c" or first == "d" or first == "e" or first == "f"
-  if is_negative then "-${hex}"
-  else {
-    var start = 0
+  if is_negative then {
+    // Two's complement: invert all nibbles, add 1
     let chars = string.chars(hex)
+    var inverted = bytes.new(20)
+    for i in 0..20 {
+      let hi = hex_nibble(list.get(chars, i * 2) ?? "0")
+      let lo = hex_nibble(list.get(chars, i * 2 + 1) ?? "0")
+      inverted = bytes.set(inverted, i, int.bxor(hi * 16 + lo, 0xFF))
+    }
+    // Add 1
+    var carry = 1
+    var i = 19
+    while i >= 0 and carry > 0 {
+      let val = bytes.read_u8(inverted, i) + carry
+      inverted = bytes.set(inverted, i, int.band(val, 0xFF))
+      carry = int.bshr(val, 8)
+      i = i - 1
+    }
+    let abs_hex = sha1.hex(inverted)
+    // Strip leading zeros
+    let abs_chars = string.chars(abs_hex)
+    var start = 0
+    let len = list.length(abs_chars)
+    while start < len - 1 and (list.get(abs_chars, start) ?? "0") == "0" {
+      start = start + 1
+    }
+    "-${string.slice(abs_hex, start, len)}"
+  } else {
+    // Positive: strip leading zeros
+    let chars = string.chars(hex)
+    var start = 0
     let len = list.length(chars)
     while start < len - 1 and (list.get(chars, start) ?? "0") == "0" {
       start = start + 1
     }
     string.slice(hex, start, len)
+  }
+}
+
+local fn hex_nibble(c: String) -> Int = {
+  match c {
+    "0" => 0,  "1" => 1,  "2" => 2,  "3" => 3,
+    "4" => 4,  "5" => 5,  "6" => 6,  "7" => 7,
+    "8" => 8,  "9" => 9,  "a" => 10, "b" => 11,
+    "c" => 12, "d" => 13, "e" => 14, "f" => 15,
+    _ => 0,
   }
 }
