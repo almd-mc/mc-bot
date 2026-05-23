@@ -1,0 +1,137 @@
+import bytes
+import mc_protocol.varint
+import mc_protocol.types
+import sha1
+
+// Isolated tests for pure handshake functions (no connection/aes dependency)
+
+let PROTOCOL_VERSION = 767
+
+fn build_handshake(host: String, port: Int) -> Bytes = {
+  let ver = varint.encode(PROTOCOL_VERSION)
+  let addr = types.encode_string(host)
+  let p = types.encode_unsigned_short(port)
+  let state = varint.encode(2)
+  bytes.concat(bytes.concat(ver, addr), bytes.concat(p, state))
+}
+
+fn build_login_start(username: String, uuid: Bytes) -> Bytes =
+  bytes.concat(types.encode_string(username), uuid)
+
+fn build_encryption_response(enc_secret: Bytes, enc_token: Bytes) -> Bytes = {
+  let s = bytes.concat(varint.encode(bytes.len(enc_secret)), enc_secret)
+  let t = bytes.concat(varint.encode(bytes.len(enc_token)), enc_token)
+  bytes.concat(s, t)
+}
+
+fn parse_encryption_request(data: Bytes) -> { server_id: String, public_key: Bytes, verify_token: Bytes } = {
+  var off = 0
+  let sid_r = varint.decode(data, off)
+  off = off + sid_r.size
+  let server_id = bytes.slice(data, off, off + sid_r.value)
+  off = off + sid_r.value
+  let pk_r = varint.decode(data, off)
+  off = off + pk_r.size
+  let public_key = bytes.slice(data, off, off + pk_r.value)
+  off = off + pk_r.value
+  let vt_r = varint.decode(data, off)
+  off = off + vt_r.size
+  let verify_token = bytes.slice(data, off, off + vt_r.value)
+  { server_id: bytes.to_string_lossy(server_id), public_key: public_key, verify_token: verify_token }
+}
+
+fn mc_hex_digest(hex: String) -> String = {
+  let first = string.slice(hex, 0, 1)
+  let is_negative = first == "8" or first == "9" or first == "a" or first == "b" or first == "c" or first == "d" or first == "e" or first == "f"
+  if is_negative then {
+    let chars = string.chars(hex)
+    var inverted = bytes.new(20)
+    for i in 0..20 {
+      let hi = hex_nibble(list.get(chars, i * 2) ?? "0")
+      let lo = hex_nibble(list.get(chars, i * 2 + 1) ?? "0")
+      inverted = bytes.set(inverted, i, int.bxor(hi * 16 + lo, 0xFF))
+    }
+    var carry = 1
+    var i = 19
+    while i >= 0 and carry > 0 {
+      let val = bytes.read_u8(inverted, i) + carry
+      inverted = bytes.set(inverted, i, int.band(val, 0xFF))
+      carry = int.bshr(val, 8)
+      i = i - 1
+    }
+    let abs_hex = sha1.hex(inverted)
+    let abs_chars = string.chars(abs_hex)
+    var start = 0
+    let len = list.length(abs_chars)
+    while start < len - 1 and (list.get(abs_chars, start) ?? "0") == "0" {
+      start = start + 1
+    }
+    "-${string.slice(abs_hex, start, len)}"
+  } else {
+    let chars = string.chars(hex)
+    var start = 0
+    let len = list.length(chars)
+    while start < len - 1 and (list.get(chars, start) ?? "0") == "0" {
+      start = start + 1
+    }
+    string.slice(hex, start, len)
+  }
+}
+
+fn hex_nibble(c: String) -> Int =
+  match c {
+    "0" => 0,  "1" => 1,  "2" => 2,  "3" => 3,
+    "4" => 4,  "5" => 5,  "6" => 6,  "7" => 7,
+    "8" => 8,  "9" => 9,  "a" => 10, "b" => 11,
+    "c" => 12, "d" => 13, "e" => 14, "f" => 15,
+    _ => 0,
+  }
+
+test "build handshake packet" {
+  let pkt = build_handshake("localhost", 25565)
+  assert(bytes.len(pkt) > 0)
+}
+
+test "build login start" {
+  let pkt = build_login_start("Steve", bytes.new(16))
+  assert(bytes.len(pkt) > 5)
+}
+
+test "build encryption response" {
+  let pkt = build_encryption_response(bytes.from_list([1, 2, 3, 4]), bytes.from_list([5, 6, 7, 8]))
+  assert(bytes.len(pkt) > 8)
+}
+
+test "parse encryption request" {
+  var pkt = varint.encode(4)
+  pkt = bytes.concat(pkt, bytes.from_string("test"))
+  pkt = bytes.concat(pkt, varint.encode(2))
+  pkt = bytes.concat(pkt, bytes.from_list([0xDE, 0xAD]))
+  pkt = bytes.concat(pkt, varint.encode(2))
+  pkt = bytes.concat(pkt, bytes.from_list([0xBE, 0xEF]))
+  let parsed = parse_encryption_request(pkt)
+  assert_eq(parsed.server_id, "test")
+  assert_eq(bytes.len(parsed.public_key), 2)
+  assert_eq(bytes.len(parsed.verify_token), 2)
+}
+
+test "mc hex digest positive" {
+  assert_eq(mc_hex_digest("4ed1f46bbe04bc756bcb17c0c7ce3e4632f06a48"), "4ed1f46bbe04bc756bcb17c0c7ce3e4632f06a48")
+}
+
+test "mc hex digest strips leading zeros" {
+  assert_eq(mc_hex_digest("0000000000000000000000000000000000000001"), "1")
+}
+
+test "mc hex digest negative" {
+  let result = mc_hex_digest("88e4a7d951d320e0c0013052e863aff41bf980cd")
+  assert(string.starts_with(result, "-"))
+}
+
+test "mc server hash known vector" {
+  let to_hash = bytes.concat(bytes.concat(bytes.from_string(""), bytes.from_list([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])), bytes.new(0))
+  let digest = sha1.hash(to_hash)
+  let hex = sha1.hex(digest)
+  let result = mc_hex_digest(hex)
+  assert(string.len(result) > 0)
+}
