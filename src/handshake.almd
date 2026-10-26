@@ -67,7 +67,7 @@ effect fn send_login_acknowledged(conn: connection.Connection) -> Result[connect
 
 effect fn generate_shared_secret() -> Bytes = {
   var secret = bytes.zeros(16)
-  for i in 0..16 { secret = bytes.set(secret, i, random.int(0, 255)) }
+  for i in 0..<16 { secret = bytes.set(secret, i, random.int(0, 255)) }
   secret
 }
 
@@ -111,7 +111,7 @@ fn mc_hex_digest(hex: String) -> String = {
     // Two's complement: invert all nibbles, add 1
     let chars = string.to_list(hex)
     var inverted = bytes.zeros(20)
-    for i in 0..20 {
+    for i in 0..<20 {
       let hi = hex_nibble(list.get(chars, i * 2) ?? "0")
       let lo = hex_nibble(list.get(chars, i * 2 + 1) ?? "0")
       inverted = bytes.set(inverted, i, int.bxor(hi * 16 + lo, 0xFF))

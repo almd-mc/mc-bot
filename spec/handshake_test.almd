@@ -46,7 +46,7 @@ fn mc_hex_digest(hex: String) -> String = {
   if is_negative then {
     let chars = string.to_list(hex)
     var inverted = bytes.zeros(20)
-    for i in 0..20 {
+    for i in 0..<20 {
       let hi = hex_nibble(list.get(chars, i * 2) ?? "0")
       let lo = hex_nibble(list.get(chars, i * 2 + 1) ?? "0")
       inverted = bytes.set(inverted, i, int.bxor(hi * 16 + lo, 0xFF))
