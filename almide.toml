@@ -13,3 +13,6 @@ neoforge = { git = "https://github.com/almd-mc/neoforge" }
 # from an owner the root manifest trusts.
 [trust]
 owners = ["github.com/almd-mc"]
+
+[permissions]
+native = ["sha1", "aes"]
