@@ -1,0 +1,7 @@
+# almide.lock — auto-generated, do not edit
+
+sha1 = { git = "https://github.com/almide/sha1", ref = "main", commit = "858feb09c84228bf91fe87a4cd1c2958794e99c0" }
+rsa = { git = "https://github.com/almide/rsa", ref = "main", commit = "dd4d849db4b6fab362aa59027d8b1f98beeb0c10" }
+mc_protocol = { git = "https://github.com/almd-mc/mc-protocol", ref = "main", commit = "d4713bb5f6c4c388853670d062334362ca348a0a" }
+mc_auth = { git = "https://github.com/almd-mc/mc-auth", ref = "main", commit = "6d00382643e1481d5da845f82b6eed59fd242131" }
+neoforge = { git = "https://github.com/almd-mc/neoforge", ref = "main", commit = "dfeef6ca0ba2efcd25181a31167243eb0f5e8420" }
