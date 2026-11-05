@@ -120,7 +120,7 @@ effect fn start(config: BotConfig) -> Result[Unit, String] = {
   conn = config_phase.run(conn, config.config_channels)!
   play_loop(conn)!
 
-  connection.close(conn)
+  connection.close(conn)!
   ok(())
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "mc_bot"
-version = "0.1.0"
+version = "0.2.0"
 
 [dependencies]
 sha1 = { git = "https://github.com/almide/sha1" }
@@ -8,3 +8,11 @@ rsa = { git = "https://github.com/almide/rsa" }
 mc_protocol = { git = "https://github.com/almd-mc/mc-protocol" }
 mc_auth = { git = "https://github.com/almd-mc/mc-auth" }
 neoforge = { git = "https://github.com/almd-mc/neoforge" }
+
+# Dialect epoch 15 (#4093): a git dependency outside github.com/almide is fetched only
+# from an owner the root manifest trusts.
+[trust]
+owners = ["github.com/almd-mc"]
+
+[permissions]
+native = ["sha1", "aes"]

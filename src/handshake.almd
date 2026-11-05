@@ -18,16 +18,16 @@ fn build_handshake(host: String, port: Int) -> Bytes = {
   let addr = types.encode_string(host)
   let p = types.encode_unsigned_short(port)
   let state = varint.encode(2)
-  bytes.concat(bytes.concat(ver, addr), bytes.concat(p, state))
+  (ver + addr) + (p + state)
 }
 
 fn build_login_start(username: String, uuid: Bytes) -> Bytes =
-  bytes.concat(types.encode_string(username), uuid)
+  types.encode_string(username) + uuid
 
 fn build_encryption_response(enc_secret: Bytes, enc_token: Bytes) -> Bytes = {
-  let s = bytes.concat(varint.encode(bytes.len(enc_secret)), enc_secret)
-  let t = bytes.concat(varint.encode(bytes.len(enc_token)), enc_token)
-  bytes.concat(s, t)
+  let s = varint.encode(bytes.len(enc_secret)) + enc_secret
+  let t = varint.encode(bytes.len(enc_token)) + enc_token
+  s + t
 }
 
 // --- Parsers ---
@@ -59,15 +59,15 @@ effect fn send_login_start(conn: connection.Connection, username: String, uuid: 
   connection.send(conn, 0x00, build_login_start(username, uuid))
 
 effect fn send_login_acknowledged(conn: connection.Connection) -> Result[connection.Connection, String] = {
-  let c = connection.send(conn, 0x03, bytes.new(0))!
+  let c = connection.send(conn, 0x03, bytes.zeros(0))!
   ok(connection.set_state(c, connection.Configuration))
 }
 
 // --- Encryption ---
 
 effect fn generate_shared_secret() -> Bytes = {
-  var secret = bytes.new(16)
-  for i in 0..16 { secret = bytes.set(secret, i, random.int(0, 255)) }
+  var secret = bytes.zeros(16)
+  for i in 0..<16 { secret = bytes.set(secret, i, random.int(0, 255)) }
   secret
 }
 
@@ -96,7 +96,7 @@ effect fn join_session(mc_token: String, uuid: String, server_id: String, shared
 
 fn mc_server_hash(server_id: String, shared_secret: Bytes, public_key: Bytes) -> String = {
   let sid_bytes = bytes.from_string(server_id)
-  let to_hash = bytes.concat(bytes.concat(sid_bytes, shared_secret), public_key)
+  let to_hash = (sid_bytes + shared_secret) + public_key
   let digest = sha1.hash(to_hash)
   mc_hex_digest(sha1.hex(digest))
 }
@@ -109,9 +109,9 @@ fn mc_hex_digest(hex: String) -> String = {
   let is_negative = first == "8" or first == "9" or first == "a" or first == "b" or first == "c" or first == "d" or first == "e" or first == "f"
   if is_negative then {
     // Two's complement: invert all nibbles, add 1
-    let chars = string.chars(hex)
-    var inverted = bytes.new(20)
-    for i in 0..20 {
+    let chars = string.to_list(hex)
+    var inverted = bytes.zeros(20)
+    for i in 0..<20 {
       let hi = hex_nibble(list.get(chars, i * 2) ?? "0")
       let lo = hex_nibble(list.get(chars, i * 2 + 1) ?? "0")
       inverted = bytes.set(inverted, i, int.bxor(hi * 16 + lo, 0xFF))
@@ -120,14 +120,14 @@ fn mc_hex_digest(hex: String) -> String = {
     var carry = 1
     var i = 19
     while i >= 0 and carry > 0 {
-      let val = bytes.read_u8(inverted, i) + carry
+      let val = bytes.get(inverted, i) ?? 0 + carry
       inverted = bytes.set(inverted, i, int.band(val, 0xFF))
       carry = int.bshr(val, 8)
       i = i - 1
     }
     let abs_hex = sha1.hex(inverted)
     // Strip leading zeros
-    let abs_chars = string.chars(abs_hex)
+    let abs_chars = string.to_list(abs_hex)
     var start = 0
     let len = list.length(abs_chars)
     while start < len - 1 and (list.get(abs_chars, start) ?? "0") == "0" {
@@ -136,7 +136,7 @@ fn mc_hex_digest(hex: String) -> String = {
     "-${string.slice(abs_hex, start, len)}"
   } else {
     // Positive: strip leading zeros
-    let chars = string.chars(hex)
+    let chars = string.to_list(hex)
     var start = 0
     let len = list.length(chars)
     while start < len - 1 and (list.get(chars, start) ?? "0") == "0" {
